@@ -3733,6 +3733,9 @@ type RoomAutoRouteJson = {
   fallback_agent: string | null;
   /** Absent from a server that predates it. */
   fallback_agent_name?: string | null;
+  /** Absent from a server that predates it. */
+  assigned_agent?: string | null;
+  assigned_agent_name?: string | null;
 };
 
 function mapRoomAutoRoute(json: RoomAutoRouteJson): RoomAutoRoute {
@@ -3742,6 +3745,8 @@ function mapRoomAutoRoute(json: RoomAutoRouteJson): RoomAutoRoute {
     reason: json.reason,
     fallbackAgent: json.fallback_agent,
     fallbackAgentName: json.fallback_agent_name ?? null,
+    assignedAgent: json.assigned_agent ?? null,
+    assignedAgentName: json.assigned_agent_name ?? null,
   };
 }
 
