@@ -29,6 +29,7 @@
     "lucide-react": "^0.564.0",
     "mobx": "^6.16.1",
     "mobx-react-lite": "^4.1.1",
+    "motion": "^12.23.12",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-force-graph-2d": "^1.29.1",

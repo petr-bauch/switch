@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, datetime
 from typing import Annotated, Literal, cast
 
@@ -36,6 +37,9 @@ from switch_core.gateway.dependencies import (
 from switch_core.observability.hosted import record_machine_event
 from switch_core.providers.hosted import HostedControllerSettings
 from switch_core.telemetry import emit_after_commit
+from switch_core.tenant_context import tenant_scope
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/hosted-machines")
 
@@ -213,6 +217,35 @@ async def _owned(
     if machine is None or workspace is None:
         raise HTTPException(404, "Cloud machine not found.")
     return machine, workspace
+
+
+async def warm_after_sign_in(
+    factory: async_sessionmaker[AsyncSession],
+    user_id: str,
+    tenant_id: str | None,
+    config: SwitchConfig,
+    settings: HostedControllerSettings | None,
+) -> None:
+    """Starts the person's cloud machine in the workspace a sign-in lands in,
+    where getting started on the web is on, so it is warming before the
+    dashboard first loads. A sign-in with no workspace yet, or a workspace
+    that may have none, starts nothing; one that cannot be had is logged and
+    never fails the sign-in, and the dashboard says why when it asks again."""
+    if not config.gateway_onboarding_enabled or settings is None or tenant_id is None:
+        return
+    with tenant_scope(tenant_id):
+        if not machines_enabled(config, settings):
+            return
+        async with factory() as session:
+            try:
+                await ensure_machine(session, factory, user_id, config, settings)
+            except (MachineUnavailable, CloudMachineConflict) as error:
+                await session.rollback()
+                logger.warning(
+                    "Signed-in user %s has no cloud machine warming: %s", user_id, error
+                )
+                return
+            await session.commit()
 
 
 @router.get("")
