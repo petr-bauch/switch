@@ -240,7 +240,10 @@ class RoomService:
     # None as "report nothing".
     _telemetry: TelemetryService | None = None
     _room_agents_listeners: tuple[Callable[[str, str], Awaitable[None]], ...] = ()
-    _room_listeners: tuple[Callable[[str, str, list[str]], None], ...] = ()
+    _room_listeners: tuple[
+        tuple[Callable[[str, str, list[str]], None], Callable[[str, list[str]], None]],
+        ...,
+    ] = ()
     _people_left_listeners: tuple[
         Callable[[str, str, list[str]], Awaitable[None]], ...
     ] = ()
@@ -273,18 +276,38 @@ class RoomService:
         # The shared delivery read; told when a room goes.
         self._room_cache = room_cache
 
-    def on_room_changed(self, listener: Callable[[str, str, list[str]], None]) -> None:
+    def on_room_changed(
+        self,
+        listener: Callable[[str, str, list[str]], None],
+        batch: Callable[[str, list[str]], None],
+    ) -> None:
         """Call `listener(tenant_id, room_id, [])` once a room is created,
-        archived or unarchived, or its agents change (`room_changes`). It must
-        not block."""
-        self._room_listeners = (*self._room_listeners, listener)
+        archived or unarchived, or its agents change (`room_changes`), and
+        `batch(tenant_id, room_ids)` once for many rooms that changed together
+        (`rooms_changed`). Neither may block.
+
+        `batch` reads the whole set in one session: a listener called once per
+        room of a large batch would ask for that many connections at once."""
+        self._room_listeners = (*self._room_listeners, (listener, batch))
 
     def room_changed(self, tenant_id: str, room_id: str) -> None:
-        for listener in self._room_listeners:
+        for listener, _ in self._room_listeners:
             try:
                 listener(tenant_id, room_id, [])
             except Exception:
                 logger.exception("Room listener failed for room %s", room_id)
+
+    def rooms_changed(self, tenant_id: str, room_ids: Collection[str]) -> None:
+        """`room_changed` for many rooms at once, such as a bulk change an
+        admin confirmed: each listener hears the whole set in one call."""
+        rooms = list(dict.fromkeys(room_ids))
+        if not rooms:
+            return
+        for _, batch in self._room_listeners:
+            try:
+                batch(tenant_id, rooms)
+            except Exception:
+                logger.exception("Room listener failed for %d rooms", len(rooms))
 
     def on_room_agents_changed(
         self, listener: Callable[[str, str], Awaitable[None]]
